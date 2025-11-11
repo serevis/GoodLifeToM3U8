@@ -3,10 +3,10 @@ name: LinkGrabber
 on:
   workflow_dispatch:
   schedule:
-    - cron: "0 */3 * * *"  # every 3 hours
+    - cron: "0 */3 * * *"   # every 3 hours
 
 permissions:
-  contents: write           # allow committing files
+  contents: write
 
 jobs:
   build:
@@ -14,6 +14,11 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+
+      - name: Show repo contents (diagnostic)
+        run: |
+          pwd
+          ls -la
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -25,11 +30,24 @@ jobs:
           python -m pip install --upgrade pip
           pip install yt-dlp
 
+      - name: Verify streams.txt exists (diagnostic)
+        run: |
+          test -f streams.txt || (echo "streams.txt missing!" && exit 1)
+          echo "----- streams.txt -----"
+          cat streams.txt
+          echo "-----------------------"
+
       - name: Generate M3U8 and EPG
         run: |
+          set -euxo pipefail
           python3 grabber.py
+          echo "----- output files -----"
+          ls -la streams.m3u8 epg.xml
 
       - name: Commit and push if changed
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add streams.m3u8 epg.xml || true
+          git diff --cached --quiet || git commit -m "Auto-update playlists"
+          git push
