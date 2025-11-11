@@ -1,0 +1,33 @@
+name: LinkGrabber
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 */3 * * *"  # every 3 hours
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: "3.x"
+
+    - name: Install dependencies
+      run: pip install yt-dlp
+
+    - name: Run grabber script
+      run: python3 grabber.py
+
+    - name: Upload updated playlist
+      uses: actions/upload-artifact@v4
+      with:
+        name: streams
+        path: |
+          streams.m3u8
+          epg.xml
