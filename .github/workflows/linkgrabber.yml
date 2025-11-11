@@ -20,99 +20,85 @@ jobs:
         with:
           python-version: "3.11"
 
-      - name: Install dependencies (yt-dlp + ffmpeg)
+      - name: Install yt-dlp + ffmpeg
         run: |
           sudo apt-get update
           sudo apt-get install -y ffmpeg
           python -m pip install --upgrade pip
           pip install --upgrade yt-dlp
 
-      - name: Show/verify inputs
-        run: |
-          echo "PWD: $(pwd)"
-          ls -la
-          test -f streams.txt || (echo "streams.txt missing!" && exit 1)
-          echo "----- streams.txt -----"
-          cat streams.txt
-
-      - name: Generate streams.m3u8 and epg.xml (inline)
+      - name: Resolve HLS and write files
         run: |
           python - <<'PY'
-          import subprocess, shlex, json, sys
+          import subprocess, json, sys, shlex
           from pathlib import Path
           from datetime import datetime, timedelta, timezone
 
-          base = Path(".")
-          lines = [l.strip() for l in Path("streams.txt").read_text(encoding="utf-8").splitlines() if l.strip()]
-          if len(lines) < 2:
-            print("streams.txt must have 2 lines: meta + URL", file=sys.stderr); sys.exit(1)
-          meta, url = lines[0], lines[1]
-          name, chan_id, group = [p.strip() for p in meta.split("||")]
+          NAME = "The Good Life Radio – Relax / Deep House / Chillout (24/7)"
+          CID  = "TheGoodLifeRadio.yt"
+          GROUP= "Deep House"
+          URL  = "https://www.youtube.com/watch?v=36YnV9STBqc"
 
           def run(cmd):
             return subprocess.check_output(cmd, shell=True, stderr=subprocess.STDOUT, text=True).strip()
 
-          def resolve_hls(u: str) -> str:
-            # 1) try direct URLs via -g (can return multiple lines)
-            for fmt in ["best[protocol^=m3u8]", "bv*+ba/b[protocol^=m3u8]/b", "best"]:
+          def resolve(u: str) -> str:
+            for fmt in ["best[protocol^=m3u8]","bv*+ba/b[protocol^=m3u8]/b","best"]:
               try:
                 out = run(f"yt-dlp --no-warnings -g -f {shlex.quote(fmt)} {shlex.quote(u)}")
-                cands = [ln.strip() for ln in out.splitlines() if ln.strip()]
-                for ln in cands:
+                lines = [ln.strip() for ln in out.splitlines() if ln.strip()]
+                for ln in lines:
                   if ".m3u8" in ln:
                     return ln
-                if cands:  # fallback to last line
-                  return cands[-1]
+                if lines:
+                  return lines[-1]
               except subprocess.CalledProcessError:
                 pass
-            # 2) JSON parse formats, pick HLS
             try:
               data = json.loads(run(f"yt-dlp -J {shlex.quote(u)}"))
               fmts = data.get("formats") or []
               hls = [f for f in fmts if (f.get("protocol") or "").startswith("m3u8") or "m3u8" in (f.get("ext") or "")]
-              hls.sort(key=lambda f: (0 if f.get("vcodec") not in (None, "none") else 1, f.get("tbr") or 0), reverse=True)
+              hls.sort(key=lambda f: (0 if f.get("vcodec") not in (None,"none") else 1, f.get("tbr") or 0), reverse=True)
               for f in hls:
                 if f.get("url"): return f["url"]
                 if f.get("manifest_url"): return f["manifest_url"]
-            except Exception:
-              pass
+            except Exception as e:
+              print("JSON probe failed:", e, file=sys.stderr)
             return ""
 
-          hls = resolve_hls(url)
+          hls = resolve(URL)
           if not hls or ".m3u8" not in hls:
-            print("Failed to resolve a playable HLS URL", file=sys.stderr); sys.exit(2)
+            print("Failed to resolve a playable HLS URL", file=sys.stderr)
+            sys.exit(2)
 
-          # Write M3U8
-          m3u = ["#EXTM3U",
-                 f'#EXTINF:-1 tvg-id="{chan_id}" tvg-name="{name}" group-title="{group}",{name}',
-                 hls]
-          Path("streams.m3u8").write_text("\n".join(m3u) + "\n", encoding="utf-8")
+          Path("streams.m3u8").write_text(
+            "#EXTM3U\n"
+            f'#EXTINF:-1 tvg-id="{CID}" tvg-name="{NAME}" group-title="{GROUP}",{NAME}\n'
+            f"{hls}\n", encoding="utf-8"
+          )
 
-          # Write a simple 24h EPG window
-          now = datetime.now(timezone.utc)
-          stop = now + timedelta(hours=24)
+          now = datetime.now(timezone.utc); stop = now + timedelta(hours=24)
           fmt = lambda dt: dt.strftime("%Y%m%d%H%M%S +0000")
-          epg = [
-            '<?xml version="1.0" encoding="UTF-8"?>',
-            '<tv generator-info-name="GoodLifeToM3U8">',
-            f'  <channel id="{chan_id}">',
-            f'    <display-name>{name}</display-name>',
-            f'  </channel>',
-            f'  <programme start="{fmt(now)}" stop="{fmt(stop)}" channel="{chan_id}">',
-            f'    <title>{name} (Live)</title>',
-            f'    <desc>Auto-generated EPG slot for a continuous live stream.</desc>',
-            f'  </programme>',
-            '</tv>'
-          ]
-          Path("epg.xml").write_text("\n".join(epg) + "\n", encoding="utf-8")
+          Path("epg.xml").write_text(
+            '<?xml version="1.0" encoding="UTF-8"?>\n'
+            '<tv generator-info-name="GoodLifeToM3U8">\n'
+            f'  <channel id="{CID}">\n'
+            f'    <display-name>{NAME}</display-name>\n'
+            f'  </channel>\n'
+            f'  <programme start="{fmt(now)}" stop="{fmt(stop)}" channel="{CID}">\n'
+            f'    <title>{NAME} (Live)</title>\n'
+            f'    <desc>Auto-generated EPG slot for a continuous live stream.</desc>\n'
+            f'  </programme>\n'
+            '</tv>\n', encoding="utf-8"
+          )
 
           print("Generated streams.m3u8 and epg.xml")
           PY
 
-      - name: Validate M3U header
+      - name: Validate and show M3U
         run: |
           head -n 5 streams.m3u8
-          grep -q '^#EXTM3U' streams.m3u8 || (echo "streams.m3u8 missing #EXTM3U" && exit 1)
+          grep -q '^#EXTM3U' streams.m3u8
 
       - name: Commit and push if changed
         run: |
