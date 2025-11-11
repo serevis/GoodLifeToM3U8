@@ -25,12 +25,13 @@ jobs:
         with:
           python-version: "3.11"
 
-      - name: Install dependencies (yt-dlp + ffmpeg)
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y ffmpeg
-          python -m pip install --upgrade pip
-          pip install --upgrade yt-dlp
+- name: Install dependencies
+  run: |
+    sudo apt-get update
+    sudo apt-get install -y ffmpeg
+    python -m pip install --upgrade pip
+    pip install --upgrade yt-dlp
+
 
       - name: Verify streams.txt exists
         run: |
