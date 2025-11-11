@@ -25,10 +25,12 @@ jobs:
         with:
           python-version: "3.11"
 
-      - name: Install dependencies
+      - name: Install dependencies (yt-dlp + ffmpeg)
         run: |
           python -m pip install --upgrade pip
-          pip install yt-dlp
+          pip install --upgrade yt-dlp
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg
 
       - name: Verify streams.txt exists (diagnostic)
         run: |
@@ -43,6 +45,12 @@ jobs:
           python3 grabber.py
           echo "----- output files -----"
           ls -la streams.m3u8 epg.xml
+          echo "----- head streams.m3u8 -----"
+          head -n 5 streams.m3u8
+
+      - name: Validate M3U syntax (must start with #EXTM3U)
+        run: |
+          grep -q '^#EXTM3U' streams.m3u8 || (echo "streams.m3u8 missing #EXTM3U header" && exit 1)
 
       - name: Commit and push if changed
         run: |
