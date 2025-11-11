@@ -27,17 +27,16 @@ jobs:
 
       - name: Install dependencies (yt-dlp + ffmpeg)
         run: |
-          python -m pip install --upgrade pip
-          pip install --upgrade yt-dlp
           sudo apt-get update
           sudo apt-get install -y ffmpeg
+          python -m pip install --upgrade pip
+          pip install --upgrade yt-dlp
 
-      - name: Verify streams.txt exists (diagnostic)
+      - name: Verify streams.txt exists
         run: |
           test -f streams.txt || (echo "streams.txt missing!" && exit 1)
           echo "----- streams.txt -----"
           cat streams.txt
-          echo "-----------------------"
 
       - name: Generate M3U8 and EPG
         run: |
@@ -48,14 +47,8 @@ jobs:
           echo "----- head streams.m3u8 -----"
           head -n 5 streams.m3u8
 
-      - name: Validate M3U syntax (must start with #EXTM3U)
+      - name: Validate M3U header
         run: |
-          grep -q '^#EXTM3U' streams.m3u8 || (echo "streams.m3u8 missing #EXTM3U header" && exit 1)
+          grep -q '^#EXTM3U' streams.m3u8 || (echo "streams.m3u8 missing #EXTM3U" && exit 1)
 
-      - name: Commit and push if changed
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add streams.m3u8 epg.xml || true
-          git diff --cached --quiet || git commit -m "Auto-update playlists"
-          git push
+      - name: Commit and push i
